@@ -21,6 +21,20 @@ class RSpotify::Playlist
   end
 end
 
+class RSpotify::User
+  def all_tracks()
+    all = []
+    offset = 0
+    new_added = []
+    begin
+      new_added = self.saved_tracks(limit: 50, offset: offset)
+      all += new_added
+      offset += 50
+    end while not new_added.size == 50
+    return all
+  end
+end
+
 use Rack::Session::Cookie
 use OmniAuth::Builder do
   provider :spotify, ENV["SPOTIFY_CLIENT_ID"], ENV["SPOTIFY_CLIENT_SECRET"], scope: 'playlist-modify-public user-library-read user-library-modify'
@@ -34,29 +48,27 @@ end
 
 RSpotify.authenticate(ENV["SPOTIFY_CLIENT_ID"], ENV["SPOTIFY_CLIENT_SECRET"])
 
-me = RSpotify::User.find("h22roscoe")
 get '/auth/:name/callback' do
   auth = request.env['omniauth.auth']
   me = RSpotify::User.new auth
 
-  playlist = RSpotify::Playlist.find("h22roscoe", me.playlists.last.id)
+  playlist_hiphop = RSpotify::Playlist.find("maxr123", "1HVqRS34s4GNiGGgLKWy28")
+  playlist_other = RSpotify::Playlist.find("maxr123", "19h76YG0MqP1FpWNCsdhgu")
 
   if not File.exists?("genres.store")
-    songs = playlist.all_tracks
+    songs = playlist_hiphop.all_tracks + playlist_other.all_tracks + me.all_tracks
 
     store = YAML::Store.new "genres.store"
     genres_hash = {}
 
     songs.each do |s|
-      s.artists.each do |a|
-        a.genres.each do |g|
-          if genres_hash.has_key?(g) then
-            genres_hash[g].add(s)
-          else
-            genres_hash[g] = Set[s]
-          end
-        end if not a.genres.nil?
-      end
+      s.artists.first.genres.each do |g|
+        if genres_hash.has_key?(g) then
+          genres_hash[g].add(s)
+        else
+          genres_hash[g] = Set[s]
+        end
+      end unless s.artists.first.genres.nil?
     end
 
     store.transaction do
@@ -73,13 +85,25 @@ get '/auth/:name/callback' do
   sorted = discard_subsets(sorted)
 
   should_be_unioned = [
-    ["rap", "hip hop", "pop rap", "southern hip hop", "brazilian hip hop", "alternative hip hop", "underground pop rap", "trap francais", "trap latino", "norwegian hip hop", "finnish hip hop", "hip pop", "underground hip hop", "west coast trap", "abstract hip hop", "underground rap", "uk hip hop", "east coast hip hop", "dirty south rap", "turntablism", "vapor trap", "grime", "electronic trap", "rap chileno"],
+    ["rap", "hip hop", "pop rap", "southern hip hop", "brazilian hip hop", "alternative hip hop", "underground pop rap", "trap francais",
+     "trap latino", "norwegian hip hop", "finnish hip hop", "hip pop", "underground hip hop", "west coast trap", "abstract hip hop",
+     "underground rap", "uk hip hop", "east coast hip hop", "dirty south rap", "turntablism", "vapor trap", "grime", "electronic trap", "rap chileno"],
 
-    ["rock", "modern rock", "indie r&b", "indietronica", "indie rock", "uk post-punk", "indie christmas", "brill building pop", "rock-and-roll", "punk", "chamber psych", "blues-rock", "madchester", "roots rock", "freak folk", "indie pop", "garage rock", "pop rock", "mellow gold", "dance-punk", "brooklyn indie", "new rave", "synthpop", "psychedelic rock", "folk rock", "classic funk rock", "alternative rock", "art rock", "classic rock", "indie folk", "chamber pop", "permanent wave", "folk-pop", "alternative dance", "neo-psychedelic", "protopunk", "swedish indie pop", "german pop", "etherpop", "kiwi rock", "jam band", "ska", "modern blues", "neo mellow", "portland indie", "indie poptimism", "swedish indie rock", "indie psych-rock", "sheffield indie", "stomp and holler", "soft rock", "glam rock", "zolo", "post-grunge", "new wave", "nu gaze", "dance rock", "dream pop", "shimmer pop", "noise pop", "australian alternative rock", "la indie", "britpop", "melancholia", "post-punk", "slow core"],
+    ["rock", "modern rock", "indietronica", "indie rock", "uk post-punk", "indie christmas", "rock-and-roll", "punk",
+     "chamber psych", "blues-rock", "madchester", "roots rock", "freak folk", "indie pop", "garage rock",
+     "pop rock", "mellow gold", "dance-punk", "brooklyn indie", "new rave", "synthpop", "psychedelic rock", "folk rock", "classic funk rock",
+     "alternative rock", "art rock", "classic rock", "chamber pop", "permanent wave", "folk-pop", "alternative dance", "neo-psychedelic",
+     "protopunk", "swedish indie pop", "german pop", "etherpop", "kiwi rock", "jam band", "ska", "modern blues", "portland indie",
+     "indie poptimism", "swedish indie rock", "indie psych-rock", "sheffield indie", "stomp and holler", "soft rock", "glam rock", "zolo", "post-grunge",
+     "new wave", "nu gaze", "dance rock", "dream pop", "shimmer pop", "noise pop", "australian alternative rock", "la indie", "britpop",
+     "melancholia", "post-punk", "slow core"],
 
-    ["pop", "dance pop", "pop christmas", "reggaeton", "r&b", "escape room", "neo soul", "electro", "trap soul", "urban contemporary", "alternative r&b", "indie psych-pop", "latin", "hip house", "deep indie r&b", "aussietronica", "canadian pop", "art pop", "metropopolis", "viral pop", "post-teen pop", "new wave pop", "australian dance", "deep pop r&b", "europop"],
+    ["pop", "dance pop", "pop christmas", "reggaeton", "r&b", "escape room", "neo soul", "electro", "trap soul", "urban contemporary", "alternative r&b",
+     "indie psych-pop", "latin", "hip house", "deep indie r&b", "aussietronica", "canadian pop", "art pop", "metropopolis", "viral pop", "post-teen pop",
+     "new wave pop", "australian dance", "deep pop r&b", "europop", "neo mellow", "indie r&b", "uk garage"],
 
-    ["electronic", "electroclash", "trip hop", "edm", "tropical house", "electro", "aussietronica", "disco house", "brostep", "float house", "house", "uk garage", "ninja", "electro house", "microhouse", "downtempo", "big beat", "bass music", "nu jazz", "electronic trap", "filter house"],
+    ["electronic", "electroclash", "trip hop", "edm", "tropical house", "electro", "aussietronica", "disco house", "brostep", "float house",
+     "house", "ninja", "electro house", "microhouse", "downtempo", "big beat", "bass music", "nu jazz", "electronic trap", "filter house"],
 
     ["wonky", "future garage", "downtempo", "dubstep", "float house", "vapor twitch", "fluxwork", "indie jazz", "future funk", "lo beats"],
 
@@ -95,7 +119,7 @@ get '/auth/:name/callback' do
 
     ["k-pop", "korean pop"],
 
-    ["soul", "soul christmas", "doo-wop", "traditional soul", "soul jazz", "memphis soul", "motown", "soul blues", "chicago soul", "soul flow", "christmas"],
+    ["soul", "soul christmas", "doo-wop", "traditional soul", "soul jazz", "memphis soul", "motown", "soul blues", "chicago soul", "soul flow", "christmas", "brill building pop"],
 
     ["jazz", "soul jazz", "electric blues", "contemporary jazz", "cabaret", "jazz blues", "bossa nova", "adult standards", "quiet storm", "vocal jazz", "jazz christmas"]
   ]
@@ -114,7 +138,7 @@ get '/auth/:name/callback' do
   end
 
   <<-HTML
-  <h1>done</h1>
+  <h1>Done</h1>
   HTML
 end
 
