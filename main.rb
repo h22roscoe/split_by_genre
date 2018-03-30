@@ -57,6 +57,7 @@ get '/auth/:name/callback' do
 
   if not File.exists?("genres.store")
     songs = playlist_hiphop.all_tracks + playlist_other.all_tracks + me.all_tracks
+    songs = songs.uniq
 
     store = YAML::Store.new "genres.store"
     genres_hash = {}
