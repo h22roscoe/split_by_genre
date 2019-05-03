@@ -5,6 +5,7 @@ require "yaml/store"
 require "omniauth"
 require "sinatra"
 require "rspotify/oauth"
+require "progress_bar"
 
 class RSpotify::Playlist
   def all_tracks(market: nil)
@@ -30,38 +31,73 @@ class RSpotify::User
       new_added = self.saved_tracks(limit: 50, offset: offset)
       all += new_added
       offset += 50
-    end while not new_added.size == 50
+    end while new_added.size == 50
     return all
+  end
+end
+
+class RSpotify::Base
+  def ==(other)
+    if other.kind_of? RSpotify::Base then
+      self.id == other.id
+    else
+      false
+    end
   end
 end
 
 use Rack::Session::Cookie
 use OmniAuth::Builder do
-  provider :spotify, ENV["SPOTIFY_CLIENT_ID"], ENV["SPOTIFY_CLIENT_SECRET"], scope: 'playlist-modify-public user-library-read user-library-modify'
+  provider :spotify, ENV["SPOTIFY_CLIENT_ID"], ENV["SPOTIFY_CLIENT_SECRET"], scope: "playlist-modify-public user-library-read user-library-modify"
 end
 
-get '/' do
+RSpotify.authenticate(ENV["SPOTIFY_CLIENT_ID"], ENV["SPOTIFY_CLIENT_SECRET"])
+
+get "/" do
   <<-HTML
   <a href='/auth/spotify'>Sign in with Spotify</a>
   HTML
 end
 
-RSpotify.authenticate(ENV["SPOTIFY_CLIENT_ID"], ENV["SPOTIFY_CLIENT_SECRET"])
-
-get '/auth/:name/callback' do
-  auth = request.env['omniauth.auth']
+get "/auth/:name/callback" do
+  auth = request.env["omniauth.auth"]
   me = RSpotify::User.new auth
+  # split_up_songs(me)
+  artists_hash = favourite_artists(me)
 
-  playlist_hiphop = RSpotify::Playlist.find("maxr123", "1HVqRS34s4GNiGGgLKWy28")
-  playlist_other = RSpotify::Playlist.find("maxr123", "19h76YG0MqP1FpWNCsdhgu")
+  artists_hash.each do |a, songs|
+    puts RSpotify::Artist.find(a).name, songs.length
+  end
 
+  <<-HTML
+  <h1>Done</h1>
+  HTML
+end
+
+def favourite_artists(me)
+  songs = me.all_tracks.uniq
+  artists_hash = {}
+  songs.each do |s|
+    s.artists.each do |a|
+      if artists_hash.has_key?(a.id) then
+        artists_hash[a.id].add(s)
+      else
+        artists_hash[a.id] = Set[s]
+      end
+    end
+  end
+
+  artists_hash.sort_by { |_k, v| -v.length }[0...20].to_h
+end
+
+def split_up_songs(me, create=false)
   if not File.exists?("genres.store")
-    songs = playlist_hiphop.all_tracks + playlist_other.all_tracks + me.all_tracks
-    songs = songs.uniq
+    songs = me.all_tracks.uniq
 
     store = YAML::Store.new "genres.store"
     genres_hash = {}
 
+    bar = ProgressBar.new(songs.size)
     songs.each do |s|
       s.artists.first.genres.each do |g|
         if genres_hash.has_key?(g) then
@@ -70,6 +106,7 @@ get '/auth/:name/callback' do
           genres_hash[g] = Set[s]
         end
       end unless s.artists.first.genres.nil?
+      bar.increment!
     end
 
     store.transaction do
@@ -83,51 +120,75 @@ get '/auth/:name/callback' do
   end
 
   sorted = genres_hash.sort_by { |_k, v| v.length }.to_h
-  sorted = discard_subsets(sorted)
 
   should_be_unioned = [
     ["rap", "hip hop", "pop rap", "southern hip hop", "brazilian hip hop", "alternative hip hop", "underground pop rap", "trap francais",
-     "trap latino", "norwegian hip hop", "finnish hip hop", "hip pop", "underground hip hop", "west coast trap", "abstract hip hop",
-     "underground rap", "uk hip hop", "east coast hip hop", "dirty south rap", "turntablism", "vapor trap", "grime", "electronic trap", "rap chileno"],
+     "trap latino", "norwegian hip hop", "finnish hip hop", "hip pop", "underground hip hop", "west coast trap", "abstract hip hop", "bassline", "gangster rap",
+     "underground rap", "uk hip hop", "east coast hip hop", "dirty south rap", "turntablism", "vapor trap", "grime", "electronic trap", "rap chileno",
+     "hardcore hip hop", "west coast rap", "detroit hip hop", "g funk", "crunk", "hyphy", "old school hip hop"],
 
-    ["rock", "modern rock", "indietronica", "indie rock", "uk post-punk", "indie christmas", "rock-and-roll", "punk",
-     "chamber psych", "blues-rock", "madchester", "roots rock", "freak folk", "indie pop", "garage rock",
+    ["trap music", "trap francais", "dwn trap", "electronic trap", "trap latino", "west coast trap", "vapor trap", "drill", "deep trap",
+     "bass trap", "west coast trap", "electronic trap"],
+
+    ["rock", "modern rock", "indietronica", "indie rock", "uk post-punk", "indie christmas", "rock-and-roll", "punk", "symphonic rock",
+     "chamber psych", "blues-rock", "madchester", "roots rock", "freak folk", "indie pop", "garage rock", "new weird america", "canadian indie",
      "pop rock", "mellow gold", "dance-punk", "brooklyn indie", "new rave", "synthpop", "psychedelic rock", "folk rock", "classic funk rock",
      "alternative rock", "art rock", "classic rock", "chamber pop", "permanent wave", "folk-pop", "alternative dance", "neo-psychedelic",
-     "protopunk", "swedish indie pop", "german pop", "etherpop", "kiwi rock", "jam band", "ska", "modern blues", "portland indie",
+     "protopunk", "swedish indie pop", "german pop", "etherpop", "kiwi rock", "jam band", "ska", "modern blues", "portland indie", "shoegaze",
      "indie poptimism", "swedish indie rock", "indie psych-rock", "sheffield indie", "stomp and holler", "soft rock", "glam rock", "zolo", "post-grunge",
-     "new wave", "nu gaze", "dance rock", "dream pop", "shimmer pop", "noise pop", "australian alternative rock", "la indie", "britpop",
-     "melancholia", "post-punk", "slow core"],
+     "new wave", "nu gaze", "dance rock", "dream pop", "shimmer pop", "noise pop", "australian alternative rock", "la indie", "britpop", "pub rock",
+     "melancholia", "post-punk", "slow core", "mashup", "album rock", "lo-fi", "chillwave", "punk blues", "british invasion", "new romantic",
+     "british blues", "hard rock", "piano rock", "merseybeat", "experimental rock", "alt-indie rock", "noise rock", "austindie", "heavy christmas",
+     "preverb", "indie garage rock", "progressive rock", "power pop", "post rock", "punk christmas", "pop punk", "garage psych", "no wave",
+     "alternative metal", "post-hardcore", "experimental", "mod revival", "indie punk", "albuquerque indie"],
 
     ["pop", "dance pop", "pop christmas", "reggaeton", "r&b", "escape room", "neo soul", "electro", "trap soul", "urban contemporary", "alternative r&b",
      "indie psych-pop", "latin", "hip house", "deep indie r&b", "aussietronica", "canadian pop", "art pop", "metropopolis", "viral pop", "post-teen pop",
-     "new wave pop", "australian dance", "deep pop r&b", "europop", "neo mellow", "indie r&b", "uk garage"],
+     "new wave pop", "australian dance", "deep pop r&b", "europop", "neo mellow", "indie r&b", "uk garage", "british invasion", "grave wave",
+     "new jack swing", "power pop", "moombahton", "candy pop", "liquid funk", "big room"],
 
-    ["electronic", "electroclash", "trip hop", "edm", "tropical house", "electro", "aussietronica", "disco house", "brostep", "float house",
-     "house", "ninja", "electro house", "microhouse", "downtempo", "big beat", "bass music", "nu jazz", "electronic trap", "filter house"],
+    ["electronic", "electroclash", "trip hop", "edm", "tropical house", "electro", "aussietronica", "disco house", "brostep",
+      "float house", "nu disco", "house", "ninja", "electro house", "microhouse", "downtempo", "big beat", "bass music", "big room",
+      "nu jazz", "electronic trap", "filter house", "deep house", "minimal techno", "acid house", "progressive house",
+      "vocal house", "drum and bass"],
 
-    ["wonky", "future garage", "downtempo", "dubstep", "float house", "vapor twitch", "fluxwork", "indie jazz", "future funk", "lo beats"],
+    ["wonky", "future garage", "dubstep", "float house", "vapor twitch", "fluxwork", "indie jazz", "future funk", "lo beats",
+     "intelligent dance music", "glitch hop", "acid techno", "glitch", "minimal techno", "hauntology"],
 
-    ["classical", "fourth world", "compositional ambient", "ambient", "bow pop", "soundtrack"],
+    ["classical", "fourth world", "compositional ambient", "ambient", "bow pop", "soundtrack", "classical christmas", "post rock", "focus", "romantic era"],
 
-    ["reggae", "roots reggae", "reggae fusion", "rock steady", "a cappella", "dancehall"],
+    ["reggae", "roots reggae", "reggae fusion", "rock steady", "a cappella", "dancehall", "dub"],
 
-    ["world", "rai", "afropop", "afrobeat", "world christmas", "afrobeats", "latin jazz", "flamenco", "electro swing", "surf music"],
+    ["world", "rai", "afropop", "afrobeat", "world christmas", "afrobeats", "latin jazz", "flamenco", "electro swing", "surf music", "mexican rock-and-roll"],
 
-    ["disco", "quiet storm", "jazz funk", "funk"],
+    ["disco", "quiet storm", "jazz funk", "funk", "deep funk"],
 
-    ["folk", "folk christmas", "folk rock", "indie folk", "folk-pop", "freak folk", "singer-songwriter", "contemporary country", "traditional country"],
+    ["folk", "folk christmas", "folk rock", "indie folk", "folk-pop", "freak folk", "singer-songwriter", "contemporary country", "traditional country", "anti-folk", "lilith"],
 
-    ["k-pop", "korean pop"],
+    ["k-pop", "korean pop", "k-hop"],
 
-    ["soul", "soul christmas", "doo-wop", "traditional soul", "soul jazz", "memphis soul", "motown", "soul blues", "chicago soul", "soul flow", "christmas", "brill building pop"],
+    ["soul", "southern soul", "soul christmas", "doo-wop", "traditional soul", "soul jazz", "memphis soul", "motown", "soul blues", "blues",
+     "chicago soul", "soul flow", "christmas", "brill building pop", "northern soul", "rockabilly", "bubblegum pop", "lounge",
+     "memphis blues", "traditional blues", "texas blues", "piedmont blues", "louisiana blues", "delta blues", "chicago blues"],
 
-    ["jazz", "soul jazz", "electric blues", "contemporary jazz", "cabaret", "jazz blues", "bossa nova", "adult standards", "quiet storm", "vocal jazz", "jazz christmas"]
+    ["jazz", "soul jazz", "electric blues", "contemporary jazz", "cabaret", "jazz blues", "bossa nova", "adult standards",
+     "quiet storm", "vocal jazz", "jazz christmas", "bebop", "cool jazz", "hard bop", "contemporary post-bop", "swing"]
   ]
 
   sorted = union_sets(should_be_unioned, sorted)
-  sorted = discard_subsets(sorted)
 
+  if create then
+    create_playlists(me, sorted)
+  else
+    sorted.each do |genre, ss|
+      puts
+      puts genre
+      ss.each { |s| print s.name, " " }
+    end
+  end
+end
+
+def create_playlists(me, sorted)
   sorted.each do |k, v|
     playlist = me.create_playlist! k
     copy = v.to_a.sort_by { |t| t.artists.first.name }
@@ -135,23 +196,19 @@ get '/auth/:name/callback' do
       playlist.add_tracks!(copy.slice!(0, 100))
     end
 
-    print "Created ", playlist.name
+    puts "Created ", playlist.name
   end
-
-  <<-HTML
-  <h1>Done</h1>
-  HTML
 end
 
 def union_sets(to_be_ud, sets)
   hash = sets
-  to_be_removed = []
+  to_be_kept = []
   to_be_ud.each do |gs|
-    hash[gs[0]] = gs.map { |g| sets[g] }.reduce(Set[], :|)
-    to_be_removed += gs[1 .. -1]
+    hash[gs[0]] = gs.map { |g| if sets[g].nil? then Set[] else sets[g] end }.reduce(Set[], :|)
+    to_be_kept << gs[0]
   end
 
-  hash.delete_if { |k, v| to_be_removed.member?(k) }
+  hash.select { |k, v| to_be_kept.member?(k) }
 end
 
 def discard_subsets(hash_of_sets)
